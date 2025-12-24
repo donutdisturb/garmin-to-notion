@@ -6,7 +6,7 @@ import pytz
 import os
 
 # Your local time zone, replace with the appropriate one if needed
-local_tz = pytz.timezone('America/Toronto')
+local_tz = pytz.timezone('Europe/Berlin')
 
 ACTIVITY_ICONS = {
     "Barre": "https://img.icons8.com/?size=100&id=66924&format=png&color=000000",
@@ -172,7 +172,12 @@ def activity_needs_update(existing_activity, new_activity):
 def create_activity(client, database_id, activity):
 
     # Create a new activity in the Notion database
-    activity_date = activity.get('startTimeGMT')
+    # Garmin-Zeit (GMT) einlesen
+    activity_date_utc = parser.isoparse(activity.get('startTimeGMT'))
+    # Nach Berlin umrechnen
+    activity_date_local = activity_date_utc.astimezone(local_tz)
+    # ISO-String für Notion
+    activity_date = activity_date_local.isoformat()
     activity_name = format_entertainment(activity.get('activityName', 'Unnamed Activity'))
     activity_type, activity_subtype = format_activity_type(
         activity.get('activityType', {}).get('typeKey', 'Unknown'),
