@@ -107,7 +107,7 @@ def format_pace(average_speed):
     else:
         return ""
     
-def activity_exists(client, database_id, activity_date, activity_type, activity_name, duration, calories):
+def activity_exists(client, database_id, activity_date, activity_type, activity_name):
 
     # Check if an activity already exists in the Notion database and return it if found.
 
@@ -172,7 +172,12 @@ def activity_needs_update(existing_activity, new_activity):
 def create_activity(client, database_id, activity):
 
     # Create a new activity in the Notion database
-    activity_date = activity.get('startTimeGMT')
+    # Garmin-Zeit (GMT) einlesen
+    activity_date_utc = parser.isoparse(activity.get('startTimeGMT'))
+    # Nach Berlin umrechnen
+    activity_date_local = activity_date_utc.astimezone(local_tz)
+    # ISO-String für Notion
+    activity_date = activity_date_local.isoformat()
     activity_name = format_entertainment(activity.get('activityName', 'Unnamed Activity'))
     activity_type, activity_subtype = format_activity_type(
         activity.get('activityType', {}).get('typeKey', 'Unknown'),
@@ -279,7 +284,7 @@ def main():
         )
         
         # Check if activity already exists in Notion
-        existing_activity = activity_exists(client, database_id, activity_date, activity_type, activity_name, duration, calories)
+        existing_activity = activity_exists(client, database_id, activity_date, activity_type, activity_name)
         
         if existing_activity:
             if activity_needs_update(existing_activity, activity):
