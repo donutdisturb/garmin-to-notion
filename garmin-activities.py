@@ -49,8 +49,7 @@ def format_activity_type(activity_type, activity_name=""):
         "Indoor Rowing": "Rowing",
         "Speed Walking": "Walking",
         "Strength Training": "Strength",
-        "Treadmill Running": "Running",
-        "HybridTraining": "Hybrid"
+        "Treadmill Running": "Running"
     }
 
     # Special replacement for Rowing V2
@@ -248,3 +247,51 @@ def update_activity(client, existing_activity, new_activity):
         "Training Effect": {"select": {"name": format_training_effect(new_activity.get('trainingEffectLabel', 'Unknown'))}},
         "Aerobic": {"number": round(new_activity.get('aerobicTrainingEffect', 0), 1)},
         "Aerobic Effect": {"select": {"name": format_training_message(new_activity.get('aerobicTrainingEffectMessage', 'Unknown'))}},
+        "Anaerobic": {"number": round(new_activity.get('anaerobicTrainingEffect', 0), 1)},
+        "Anaerobic Effect": {"select": {"name": format_training_message(new_activity.get('anaerobicTrainingEffectMessage', 'Unknown'))}},
+        "PR": {"checkbox": new_activity.get('pr', False)},
+        "Fav": {"checkbox": new_activity.get('favorite', False)}
+    }
+    
+    update = {
+        "page_id": existing_activity['id'],
+        "properties": properties,
+    }
+    
+    if icon_url:
+        update["icon"] = {"type": "external", "external": {"url": icon_url}}
+        
+    client.pages.update(**update)
+
+def main():
+    load_dotenv()
+
+    # Initialize Garmin and Notion clients using environment variables
+    garmin_email = os.getenv("GARMIN_EMAIL")
+    garmin_password = os.getenv("GARMIN_PASSWORD")
+    notion_token = os.getenv("NOTION_TOKEN")
+    database_id = os.getenv("NOTION_DB_ID")
+
+    # Initialize Garmin client and login
+    garmin = Garmin(garmin_email, garmin_password)
+    garmin.login()
+    client = Client(auth=notion_token)
+    
+    # Get all activities
+    activities = get_all_activities(garmin)
+
+    # Process all activities
+    for activity in activities:
+        # Check if activity already exists in Notion per Import fingerprint
+        existing_activity = activity_exists(client, database_id, activity)
+        
+        if existing_activity:
+            if activity_needs_update(existing_activity, activity):
+                update_activity(client, existing_activity, activity)
+                # print(f"Updated: {activity.get('activityName')}")
+        else:
+            create_activity(client, database_id, activity)
+            # print(f"Created: {activity.get('activityName')}")
+
+if __name__ == '__main__':
+    main()
