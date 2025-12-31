@@ -49,7 +49,8 @@ def format_activity_type(activity_type, activity_name=""):
         "Indoor Rowing": "Rowing",
         "Speed Walking": "Walking",
         "Strength Training": "Strength",
-        "Treadmill Running": "Running"
+        "Treadmill Running": "Running",
+        "HybridTraining": "Hybrid"
     }
 
     # Special replacement for Rowing V2
@@ -91,12 +92,12 @@ def format_training_message(message):
         'OVERREACHING_': 'Overreaching'
     }
     for key, value in messages.items():
-        if message.startswith(key):
+        if message and message.startswith(key):
             return value
-    return message
+    return message or "Unknown"
 
 def format_training_effect(trainingEffect_label):
-    return trainingEffect_label.replace('_', ' ').title()
+    return (trainingEffect_label or "Unknown").replace('_', ' ').title()
 
 def format_pace(average_speed):
     if average_speed > 0:
@@ -106,33 +107,44 @@ def format_pace(average_speed):
         return f"{minutes}:{seconds:02d} min/km"
     else:
         return ""
-    
-def activity_exists(client, database_id, activity_date, activity_type, activity_name):
 
-    # Check if an activity already exists in the Notion database and return it if found.
+# >>> Fingerprint-Helfer <<<
 
-    # Handle the activity_type which is now a tuple
-    if isinstance(activity_type, tuple):
-        main_type, _ = activity_type
-    else:
-        main_type = activity_type[0] if isinstance(activity_type, (list, tuple)) else activity_type
-    
-    # Determine the correct activity type for the lookup
-    lookup_type = "Stretching" if "stretch" in activity_name.lower() else main_type
-    
+def build_import_fingerprint(activity):
+    """
+    Baut denselben String wie die Notion-Formel:
+    formatDate(Date, "YYYY-MM-DD") + " | " +
+    Activity Name + " | " + format(Duration (min)) + " | " + format(Calories)
+    """
+    activity_date = activity.get('startTimeGMT') or ""
+    activity_name = format_entertainment(activity.get('activityName', 'Unnamed Activity'))
+
+    date_only = activity_date.split('T')[0] if 'T' in activity_date else activity_date
+
+    duration_min = round(activity.get('duration', 0) / 60, 2)
+    calories = round(activity.get('calories', 0))
+
+    # Wichtig: format() in Notion kann je nach Locale Komma/Punkt nutzen.
+    # Hier wird der Python-String gebaut; stelle sicher, dass deine Formel numerisch ähnlich rundet.
+    return f"{date_only} | {activity_name} | {duration_min} | {calories}"
+
+def activity_exists(client, database_id, activity):
+
+    # Prüft, ob eine Aktivität mit identischem Import fingerprint schon in Notion existiert.
+
+    fingerprint = build_import_fingerprint(activity)
+
     query = client.databases.query(
         database_id=database_id,
         filter={
-            "and": [
-                {"property": "Date", "date": {"equals": activity_date.split('T')[0]}},
-                {"property": "Activity Type", "select": {"equals": lookup_type}},
-                {"property": "Activity Name", "title": {"equals": activity_name}}
-            ]
+            "property": "Import fingerprint",
+            "rich_text": {
+                "equals": fingerprint
+            }
         }
     )
     results = query['results']
     return results[0] if results else None
-
 
 def activity_needs_update(existing_activity, new_activity):
     existing_props = existing_activity['properties']
@@ -236,58 +248,3 @@ def update_activity(client, existing_activity, new_activity):
         "Training Effect": {"select": {"name": format_training_effect(new_activity.get('trainingEffectLabel', 'Unknown'))}},
         "Aerobic": {"number": round(new_activity.get('aerobicTrainingEffect', 0), 1)},
         "Aerobic Effect": {"select": {"name": format_training_message(new_activity.get('aerobicTrainingEffectMessage', 'Unknown'))}},
-        "Anaerobic": {"number": round(new_activity.get('anaerobicTrainingEffect', 0), 1)},
-        "Anaerobic Effect": {"select": {"name": format_training_message(new_activity.get('anaerobicTrainingEffectMessage', 'Unknown'))}},
-        "PR": {"checkbox": new_activity.get('pr', False)},
-        "Fav": {"checkbox": new_activity.get('favorite', False)}
-    }
-    
-    update = {
-        "page_id": existing_activity['id'],
-        "properties": properties,
-    }
-    
-    if icon_url:
-        update["icon"] = {"type": "external", "external": {"url": icon_url}}
-        
-    client.pages.update(**update)
-
-def main():
-    load_dotenv()
-
-    # Initialize Garmin and Notion clients using environment variables
-    garmin_email = os.getenv("GARMIN_EMAIL")
-    garmin_password = os.getenv("GARMIN_PASSWORD")
-    notion_token = os.getenv("NOTION_TOKEN")
-    database_id = os.getenv("NOTION_DB_ID")
-
-    # Initialize Garmin client and login
-    garmin = Garmin(garmin_email, garmin_password)
-    garmin.login()
-    client = Client(auth=notion_token)
-    
-    # Get all activities
-    activities = get_all_activities(garmin)
-
-    # Process all activities
-    for activity in activities:
-        activity_date = activity.get('startTimeGMT')
-        activity_name = format_entertainment(activity.get('activityName', 'Unnamed Activity'))
-        activity_type, activity_subtype = format_activity_type(
-            activity.get('activityType', {}).get('typeKey', 'Unknown'),
-            activity_name
-        )
-        
-        # Check if activity already exists in Notion
-        existing_activity = activity_exists(client, database_id, activity_date, activity_type, activity_name)
-        
-        if existing_activity:
-            if activity_needs_update(existing_activity, activity):
-                update_activity(client, existing_activity, activity)
-                # print(f"Updated: {activity_type} - {activity_name}")
-        else:
-            create_activity(client, database_id, activity)
-            # print(f"Created: {activity_type} - {activity_name}")
-
-if __name__ == '__main__':
-    main()
