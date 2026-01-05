@@ -33,7 +33,7 @@ ACTIVITY_ICONS = {
     "Yoga": "https://img.icons8.com/?size=100&id=9783&format=png&color=000000",
 }
 
-def get_all_activities(garmin, limit=1000):
+def get_all_activities(garmin, limit=500):
     return garmin.get_activities(0, limit)
 
 def format_activity_type(activity_type, activity_name=""):
